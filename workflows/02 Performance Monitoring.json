@@ -1,0 +1,181 @@
+{
+  "name": "Performance Monitoring",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "name": "Hourly Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        0,
+        0
+      ],
+      "id": "cb7e0460-1b6a-4b82-a914-5214d222d923",
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        }
+      },
+      "name": "Get Active Ads",
+      "type": "n8n-nodes-base.airtable",
+      "position": [
+        224,
+        0
+      ],
+      "id": "041b932d-b9cb-4fcb-a525-19dcda139b3f",
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.fields.Meta_Ad_ID }}/insights",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "impressions,clicks,spend,conversions,ctr,cpc,cpm"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.META_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Meta Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        448,
+        0
+      ],
+      "id": "3bfaa08e-c6a1-47d5-bc6e-e852119383b7",
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {},
+      "name": "Calculate Metrics",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        672,
+        0
+      ],
+      "id": "e4e2ec1f-6036-48db-b364-6aad37a5cb24",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Impressions": "={{ $json.impressions }}",
+            "Clicks": "={{ $json.clicks }}",
+            "Spend": "={{ $json.spend }}",
+            "Conversions": "={{ $json.conversions }}",
+            "CTR": "={{ $json.ctr }}",
+            "CPA": "={{ $json.cpa }}",
+            "ROAS": "={{ $json.roas }}",
+            "Last_Updated": "={{ $json.updated_at }}"
+          }
+        },
+        "options": {}
+      },
+      "name": "Update Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "position": [
+        880,
+        0
+      ],
+      "id": "7af7b704-4c14-4bf9-9877-4259959001b3",
+      "typeVersion": 2.1
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Hourly Check": {
+      "main": [
+        [
+          {
+            "node": "Get Active Ads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Ads": {
+      "main": [
+        [
+          {
+            "node": "Get Meta Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Meta Insights": {
+      "main": [
+        [
+          {
+            "node": "Calculate Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Metrics": {
+      "main": [
+        [
+          {
+            "node": "Update Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d1d780a1-ed06-4f26-8851-e5f7b6165f71",
+  "meta": {
+    "instanceId": "ba50db535390c113743b9abac809523fb1844620999ec0f1b6d745f0fb90a4c8"
+  },
+  "id": "KXqkBf1an7nQsZko",
+  "tags": []
+}

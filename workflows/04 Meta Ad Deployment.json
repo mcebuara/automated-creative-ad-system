@@ -1,0 +1,479 @@
+{
+  "name": "Meta Ad Deployment",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "deploy-ads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0002d707-efba-4f61-b41a-866982a0a857",
+      "name": "Deploy Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "deploy-ads"
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        }
+      },
+      "id": "5dea4b6a-8e7e-416c-8fe1-8c313e9b5440",
+      "name": "Get Approved Creatives",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst campaigns = {};\n\n// Group creatives by campaign\nfor (const item of items) {\n  const f = item.json.fields;\n  const campaign = f.Campaign_Name;\n  \n  if (!campaigns[campaign]) {\n    campaigns[campaign] = {\n      name: campaign,\n      client_id: f.Client_ID,\n      creatives: []\n    };\n  }\n  \n  campaigns[campaign].creatives.push({\n    id: item.json.id,\n    headline: f.Headline,\n    primary_text: f.Primary_Text,\n    description: f.Description,\n    cta: f.CTA,\n    variant_num: f.Variant_Number\n  });\n}\n\nconst outputs = [];\n\nfor (const [key, campaign] of Object.entries(campaigns)) {\n  outputs.push({\n    json: {\n      campaign_name: campaign.name,\n      client_id: campaign.client_id,\n      creatives: campaign.creatives,\n      daily_budget: campaign.creatives.length * 5000, // $50 per creative\n      test_duration: 7\n    }\n  });\n}\n\nreturn outputs;"
+      },
+      "id": "325ea994-bd03-4a94-9c70-865b0f8c2091",
+      "name": "Group by Campaign",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/campaigns",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.campaign_name }} - A/B Test\",\n  \"objective\": \"OUTCOME_SALES\",\n  \"status\": \"PAUSED\",\n  \"special_ad_categories\": [],\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "e779794d-022f-4f42-bdf7-c47f256a608e",
+      "name": "Create Meta Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "8b2d6a00-90ad-441b-9a9c-d3286b69f100",
+      "name": "Loop Creatives",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst campaign = item.json;\nconst loopIndex = $node[\"Loop Creatives\"].context.currentRunIndex;\nconst creative = campaign.creatives[loopIndex];\n\nreturn {\n  json: {\n    campaign_id: $node[\"Create Meta Campaign\"].json.id,\n    campaign_name: campaign.campaign_name,\n    creative_id: creative.id,\n    creative: creative,\n    daily_budget: Math.floor(campaign.daily_budget / campaign.creatives.length)\n  }\n};"
+      },
+      "id": "d0d3aa51-5756-428b-b745-bb817d2e432d",
+      "name": "Get Current Creative",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/adsets",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"Variant {{ $json.creative.variant_num }}\",\n  \"campaign_id\": \"{{ $json.campaign_id }}\",\n  \"daily_budget\": \"{{ $json.daily_budget }}\",\n  \"billing_event\": \"IMPRESSIONS\",\n  \"optimization_goal\": \"OFFSITE_CONVERSIONS\",\n  \"bid_strategy\": \"LOWEST_COST_WITHOUT_CAP\",\n  \"promoted_object\": {\n    \"pixel_id\": \"{{ $env.META_PIXEL_ID }}\",\n    \"custom_event_type\": \"PURCHASE\"\n  },\n  \"targeting\": {\n    \"geo_locations\": {\n      \"countries\": [\"US\", \"CA\", \"GB\"]\n    },\n    \"age_min\": 25,\n    \"age_max\": 55,\n    \"publisher_platforms\": [\"facebook\", \"instagram\"]\n  },\n  \"status\": \"PAUSED\",\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "16507322-4a93-4183-971f-63b7d98ba87b",
+      "name": "Create Ad Set",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1328,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/adcreatives",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.creative.headline }}\",\n  \"object_story_spec\": {\n    \"page_id\": \"{{ $env.META_PAGE_ID }}\",\n    \"link_data\": {\n      \"link\": \"{{ $env.LANDING_PAGE_URL }}\",\n      \"message\": \"{{ $json.creative.primary_text }}\",\n      \"name\": \"{{ $json.creative.headline }}\",\n      \"description\": \"{{ $json.creative.description }}\",\n      \"call_to_action\": {\n        \"type\": \"LEARN_MORE\",\n        \"value\": {\n          \"link\": \"{{ $env.LANDING_PAGE_URL }}\"\n        }\n      }\n    }\n  },\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "6957dbd1-16f7-4373-b29b-e753d58dba7b",
+      "name": "Create Ad Creative",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/ads",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.creative.headline }}\",\n  \"adset_id\": \"{{ $node[\"Create Ad Set\"].json.id }}\",\n  \"creative\": {\n    \"creative_id\": \"{{ $node[\"Create Ad Creative\"].json.id }}\"\n  },\n  \"status\": \"PAUSED\",\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "adf6cb30-5951-4755-b2df-7879d70ac9f5",
+      "name": "Create Ad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Meta_Ad_ID": "={{ $node[\"Create Ad\"].json.id }}",
+            "Meta_Adset_ID": "={{ $node[\"Create Ad Set\"].json.id }}",
+            "Meta_Campaign_ID": "={{ $json.campaign_id }}",
+            "Status": "deployed",
+            "Deployed_At": "={{ new Date().toISOString() }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "4bd4654f-5a40-40b0-a9ce-52eb9cfae2c8",
+      "name": "Update Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        1984,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ce9e6c00-8e03-473d-be4b-9d9c318cc743",
+      "name": "Continue Loop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2208,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $node[\"Create Meta Campaign\"].json.id }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"ACTIVE\",\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "8c9082f8-4b57-4862-b06e-f38287e29c71",
+      "name": "Activate Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2432,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Activate all adsets in campaign\nconst items = $input.all();\nconst campaign = items[0].json;\n\nreturn {\n  json: {\n    campaign_id: $node[\"Create Meta Campaign\"].json.id,\n    campaign_name: campaign.campaign_name,\n    creatives_deployed: campaign.creatives.length,\n    total_budget: campaign.daily_budget,\n    status: 'active',\n    deployed_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "ca87a566-e6b5-4775-84fd-1535f5c9eddd",
+      "name": "Prepare Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.campaign_id }}/adsets",
+        "authentication": "genericCredentialType",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.META_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"status\": \"ACTIVE\",\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "f366690d-313f-4b0a-8bca-b6a0cafa9d25",
+      "name": "Activate All Ad Sets",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2864,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=🚀 *Campaign Deployed*\n\n*Campaign:* {{ $json.campaign_name }}\n*Campaign ID:* {{ $json.campaign_id }}\n*Creatives:* {{ $json.creatives_deployed }} variants\n*Daily Budget:* ${{ ($json.total_budget / 100).toFixed(2) }}\n*Status:* ✅ ACTIVE\n\nA/B test running for 7 days",
+        "otherOptions": {}
+      },
+      "id": "1eaba2e9-7fbc-4c32-bc2e-526de62ce0b9",
+      "name": "Notify Deployment",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        3088,
+        0
+      ],
+      "webhookId": "c8cacf63-7d87-4f65-b32b-aee312b78d80"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": true,\n  \"campaign_id\": \"{{ $json.campaign_id }}\",\n  \"message\": \"Campaign deployed and activated\"\n}",
+        "options": {}
+      },
+      "id": "2c8a3e56-b050-41b3-8071-813f1af94da7",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        3312,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Deploy Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Approved Creatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Approved Creatives": {
+      "main": [
+        [
+          {
+            "node": "Group by Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group by Campaign": {
+      "main": [
+        [
+          {
+            "node": "Create Meta Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Meta Campaign": {
+      "main": [
+        [
+          {
+            "node": "Loop Creatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Creatives": {
+      "main": [
+        [
+          {
+            "node": "Get Current Creative",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Activate Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Current Creative": {
+      "main": [
+        [
+          {
+            "node": "Create Ad Set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Ad Set": {
+      "main": [
+        [
+          {
+            "node": "Create Ad Creative",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Ad Creative": {
+      "main": [
+        [
+          {
+            "node": "Create Ad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Ad": {
+      "main": [
+        [
+          {
+            "node": "Update Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Airtable": {
+      "main": [
+        [
+          {
+            "node": "Continue Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue Loop": {
+      "main": [
+        [
+          {
+            "node": "Loop Creatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate Campaign": {
+      "main": [
+        [
+          {
+            "node": "Prepare Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Summary": {
+      "main": [
+        [
+          {
+            "node": "Activate All Ad Sets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Activate All Ad Sets": {
+      "main": [
+        [
+          {
+            "node": "Notify Deployment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Deployment": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e5840fe5-f423-41c9-9941-d0836283faa8",
+  "meta": {
+    "instanceId": "ba50db535390c113743b9abac809523fb1844620999ec0f1b6d745f0fb90a4c8"
+  },
+  "id": "CbznAo2JrMqPrJFD",
+  "tags": []
+}

@@ -1,0 +1,478 @@
+{
+  "name": "Audience Intelligence & Lookalikes",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "daysInterval": 7
+            }
+          ]
+        }
+      },
+      "id": "3b7ada8d-b3bf-41f0-b0c4-4b77f04aa926",
+      "name": "Weekly Analysis",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        }
+      },
+      "id": "a125d246-2f7d-4d0a-ba62-0489a0c380be",
+      "name": "Get High Performers",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst campaigns = {};\n\n// Group by campaign, get top performer\nfor (const item of items) {\n  const f = item.json.fields;\n  const campaign = f.Campaign_Name;\n  const roas = parseFloat(f.ROAS || 0);\n  \n  if (!campaigns[campaign] || roas > campaigns[campaign].roas) {\n    campaigns[campaign] = {\n      campaign_name: campaign,\n      ad_id: f.Meta_Ad_ID,\n      campaign_id: f.Meta_Campaign_ID,\n      roas: roas,\n      conversions: parseInt(f.Conversions || 0)\n    };\n  }\n}\n\nconst outputs = [];\nfor (const campaign of Object.values(campaigns)) {\n  outputs.push({json: campaign});\n}\n\nreturn outputs;"
+      },
+      "id": "c55a1c97-7825-4623-ae38-303fd19cee51",
+      "name": "Identify Top Performers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.ad_id }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "targeting"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.META_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3d3fcf6f-3739-462f-9ca1-7e36b19e3a26",
+      "name": "Get Ad Targeting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/customaudiences",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"Converters - {{ $json.campaign_name }} - {{ new Date().toISOString().split('T')[0] }}\",\n  \"subtype\": \"WEBSITE\",\n  \"description\": \"High performers with {{ $json.conversions }}+ conversions and {{ $json.roas }}x ROAS\",\n  \"customer_file_source\": \"BOTH_USER_AND_PARTNER_PROVIDED\",\n  \"rule\": {\n    \"inclusions\": {\n      \"operator\": \"or\",\n      \"rules\": [\n        {\n          \"event_sources\": [\n            {\n              \"id\": \"{{ $env.META_PIXEL_ID }}\",\n              \"type\": \"pixel\"\n            }\n          ],\n          \"retention_seconds\": 15552000,\n          \"filter\": {\n            \"operator\": \"and\",\n            \"filters\": [\n              {\n                \"field\": \"event\",\n                \"operator\": \"eq\",\n                \"value\": \"Purchase\"\n              }\n            ]\n          }\n        }\n      ]\n    }\n  },\n  \"retention_days\": 180,\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "27ae35b0-cd49-4363-a9ff-4e463b5c61a2",
+      "name": "Create Custom Audience",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/customaudiences",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"LAL 1% - {{ $json.campaign_name }}\",\n  \"subtype\": \"LOOKALIKE\",\n  \"origin_audience_id\": \"{{ $node[\"Create Custom Audience\"].json.id }}\",\n  \"lookalike_spec\": {\n    \"type\": \"similarity\",\n    \"country\": \"US\",\n    \"ratio\": 0.01,\n    \"starting_ratio\": 0.0,\n    \"is_financial_service\": false\n  },\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "45e583ff-b033-458c-ad4d-8700c382d7e8",
+      "name": "Create LAL 1%",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/customaudiences",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"LAL 3% - {{ $json.campaign_name }}\",\n  \"subtype\": \"LOOKALIKE\",\n  \"origin_audience_id\": \"{{ $node[\"Create Custom Audience\"].json.id }}\",\n  \"lookalike_spec\": {\n    \"type\": \"similarity\",\n    \"country\": \"US\",\n    \"ratio\": 0.03,\n    \"starting_ratio\": 0.01,\n    \"is_financial_service\": false\n  },\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "8f1a647c-68cb-4aa2-b1de-6cace1fb76c4",
+      "name": "Create LAL 3%",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/customaudiences",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"LAL 5% - {{ $json.campaign_name }}\",\n  \"subtype\": \"LOOKALIKE\",\n  \"origin_audience_id\": \"{{ $node[\"Create Custom Audience\"].json.id }}\",\n  \"lookalike_spec\": {\n    \"type\": \"similarity\",\n    \"country\": \"US\",\n    \"ratio\": 0.05,\n    \"starting_ratio\": 0.03,\n    \"is_financial_service\": false\n  },\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "9da41687-3f6d-4572-a289-7a82a76f3b6a",
+      "name": "Create LAL 5%",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\nreturn {\n  json: {\n    campaign_name: item.json.campaign_name,\n    source_roas: item.json.roas,\n    source_conversions: item.json.conversions,\n    custom_audience_id: $node[\"Create Custom Audience\"].json.id,\n    lal_1_id: $node[\"Create LAL 1%\"].json.id,\n    lal_3_id: $node[\"Create LAL 3%\"].json.id,\n    lal_5_id: $node[\"Create LAL 5%\"].json.id,\n    created_at: new Date().toISOString()\n  }\n};"
+      },
+      "id": "f6bb9ae6-4142-4659-9d77-a8301d1aad53",
+      "name": "Merge Audience Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Audiences",
+          "mode": "name"
+        }
+      },
+      "id": "55a028e5-0d71-4d2c-8a6a-09b7c86d605e",
+      "name": "Save to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/campaigns",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"LAL Test - {{ $json.campaign_name }}\",\n  \"objective\": \"OUTCOME_SALES\",\n  \"status\": \"PAUSED\",\n  \"special_ad_categories\": [],\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "1b5977aa-d232-40bf-b085-af24a2ca923c",
+      "name": "Create LAL Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "48a93f19-a14b-4606-9bb8-17cf2fa5f28d",
+      "name": "Loop LAL Audiences",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1984,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\nconst audiences = [\n  {id: item.json.lal_1_id, name: 'LAL 1%', budget: 10000},\n  {id: item.json.lal_3_id, name: 'LAL 3%', budget: 7500},\n  {id: item.json.lal_5_id, name: 'LAL 5%', budget: 5000}\n];\n\nconst loopIndex = $node[\"Loop LAL Audiences\"].context.currentRunIndex;\nconst audience = audiences[loopIndex];\n\nreturn {\n  json: {\n    campaign_id: $node[\"Create LAL Campaign\"].json.id,\n    campaign_name: item.json.campaign_name,\n    audience_id: audience.id,\n    audience_name: audience.name,\n    daily_budget: audience.budget\n  }\n};"
+      },
+      "id": "4278bb9f-8b17-4bfd-96dd-b31312e3e060",
+      "name": "Get Current LAL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2208,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/act_{{ $env.META_AD_ACCOUNT_ID }}/adsets",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.audience_name }}\",\n  \"campaign_id\": \"{{ $json.campaign_id }}\",\n  \"daily_budget\": \"{{ $json.daily_budget }}\",\n  \"billing_event\": \"IMPRESSIONS\",\n  \"optimization_goal\": \"OFFSITE_CONVERSIONS\",\n  \"bid_strategy\": \"LOWEST_COST_WITHOUT_CAP\",\n  \"promoted_object\": {\n    \"pixel_id\": \"{{ $env.META_PIXEL_ID }}\",\n    \"custom_event_type\": \"PURCHASE\"\n  },\n  \"targeting\": {\n    \"custom_audiences\": [\n      {\n        \"id\": \"{{ $json.audience_id }}\"\n      }\n    ],\n    \"publisher_platforms\": [\"facebook\", \"instagram\"]\n  },\n  \"status\": \"PAUSED\",\n  \"access_token\": \"{{ $env.META_ACCESS_TOKEN }}\"\n}",
+        "options": {}
+      },
+      "id": "1fdcd299-703b-49fb-a272-8240861d0e99",
+      "name": "Create LAL Ad Set",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2432,
+        96
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "3fc2b6f9-d49f-4c9d-91fe-958d4a68dc31",
+      "name": "Continue Loop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2640,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=🎯 *New Lookalike Audiences Created*\n\n*Campaign:* {{ $json.campaign_name }}\n*Source Performance:* {{ $json.source_roas }}x ROAS, {{ $json.source_conversions }} conversions\n\n*Audiences Created:*\n• LAL 1% (Highest Quality)\n• LAL 3% (Balanced)\n• LAL 5% (Broader Reach)\n\n*LAL Test Campaign:* Ready for activation\n\nThese audiences are now available for targeting in Meta Ads Manager.",
+        "otherOptions": {}
+      },
+      "id": "d72aceb1-898f-41b3-beab-88d0d4397712",
+      "name": "Notify Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        2864,
+        96
+      ],
+      "webhookId": "6e803bc2-cb9f-4c9e-83a6-65b79dd64c63"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Weekly Analysis": {
+      "main": [
+        [
+          {
+            "node": "Get High Performers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get High Performers": {
+      "main": [
+        [
+          {
+            "node": "Identify Top Performers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identify Top Performers": {
+      "main": [
+        [
+          {
+            "node": "Get Ad Targeting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Ad Targeting": {
+      "main": [
+        [
+          {
+            "node": "Create Custom Audience",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Custom Audience": {
+      "main": [
+        [
+          {
+            "node": "Create LAL 1%",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create LAL 3%",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create LAL 5%",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create LAL 1%": {
+      "main": [
+        [
+          {
+            "node": "Merge Audience Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create LAL 3%": {
+      "main": [
+        [
+          {
+            "node": "Merge Audience Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create LAL 5%": {
+      "main": [
+        [
+          {
+            "node": "Merge Audience Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Audience Data": {
+      "main": [
+        [
+          {
+            "node": "Save to Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Airtable": {
+      "main": [
+        [
+          {
+            "node": "Create LAL Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create LAL Campaign": {
+      "main": [
+        [
+          {
+            "node": "Loop LAL Audiences",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop LAL Audiences": {
+      "main": [
+        [
+          {
+            "node": "Get Current LAL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Current LAL": {
+      "main": [
+        [
+          {
+            "node": "Create LAL Ad Set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create LAL Ad Set": {
+      "main": [
+        [
+          {
+            "node": "Continue Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Continue Loop": {
+      "main": [
+        [
+          {
+            "node": "Loop LAL Audiences",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5372979e-3373-4207-bafa-db9506c46dd1",
+  "meta": {
+    "instanceId": "ba50db535390c113743b9abac809523fb1844620999ec0f1b6d745f0fb90a4c8"
+  },
+  "id": "0tWCT8dlwP2xXwaC",
+  "tags": []
+}

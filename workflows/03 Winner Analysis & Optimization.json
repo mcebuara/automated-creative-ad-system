@@ -1,0 +1,236 @@
+{
+  "name": "Winner Analysis & Optimization",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "name": "Daily Analysis",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -704,
+        -16
+      ],
+      "id": "c0713b83-0ede-4f92-ae56-ee492b476609",
+      "typeVersion": 1.2
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        }
+      },
+      "name": "Get Campaign Data",
+      "type": "n8n-nodes-base.airtable",
+      "position": [
+        -480,
+        -16
+      ],
+      "id": "bd781685-703c-49ec-b481-ec9e3005c735",
+      "typeVersion": 2.1
+    },
+    {
+      "parameters": {},
+      "name": "Analyze Winners",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -272,
+        -16
+      ],
+      "id": "3f882a02-2cd8-475f-9247-2155de4b8d36",
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "equals",
+              "value2": "pause"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Should Pause?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        -48,
+        -16
+      ],
+      "id": "7a599e64-2a38-41c1-bbfd-1293fda6bc44",
+      "typeVersion": 2.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.ad_id }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "PAUSED"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.META_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Pause Ad",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        176,
+        -112
+      ],
+      "id": "adba7419-84d6-4b6a-934a-9a16790eb4cf",
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v18.0/{{ $json.ad_id }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "daily_budget",
+              "value": "={{ Math.floor($json.budget_multiplier * 5000) }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.META_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Adjust Budget",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        176,
+        96
+      ],
+      "id": "9df55fbc-f083-4e64-a063-52cf4f107ce4",
+      "typeVersion": 4.2
+    },
+    {
+      "parameters": {
+        "text": "=🏆 Winner: {{ $json.campaign }}\\nAd ID: {{ $json.ad_id }}\\nScore: {{ $json.score }}\\nAction: {{ $json.action }}",
+        "otherOptions": {}
+      },
+      "name": "Notify Winner",
+      "type": "n8n-nodes-base.slack",
+      "position": [
+        400,
+        -16
+      ],
+      "id": "65c7489e-4d6d-48cd-9bab-9de2860a3fd7",
+      "typeVersion": 2.3,
+      "webhookId": "360999a5-c23d-4731-8684-10790cdcf843"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Analysis": {
+      "main": [
+        [
+          {
+            "node": "Get Campaign Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Campaign Data": {
+      "main": [
+        [
+          {
+            "node": "Analyze Winners",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Winners": {
+      "main": [
+        [
+          {
+            "node": "Should Pause?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Pause?": {
+      "main": [
+        [
+          {
+            "node": "Pause Ad",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Adjust Budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pause Ad": {
+      "main": [
+        [
+          {
+            "node": "Notify Winner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adjust Budget": {
+      "main": [
+        [
+          {
+            "node": "Notify Winner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e47464e3-56bc-4922-a66c-73919219ebdb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ba50db535390c113743b9abac809523fb1844620999ec0f1b6d745f0fb90a4c8"
+  },
+  "id": "HcfnmfFPUEChx5L2",
+  "tags": []
+}

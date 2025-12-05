@@ -1,0 +1,258 @@
+{
+  "name": "Creative Generation & A/B Testing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "7c8fcbd0-1c40-46c7-82c9-a26bb46fc758",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -128,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "generate-creative",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0911019f-6668-45be-8a5f-9c79b0e58a88",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        48
+      ],
+      "webhookId": "generate-creative"
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Client_Briefs",
+          "mode": "name"
+        }
+      },
+      "id": "1ef6eaef-c6d4-4eb6-ad82-0b1363cd24ee",
+      "name": "Get Client Briefs",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        96,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const outputs = [];\n\nfor (const item of $input.all()) {\n  const brief = item.json;\n  \n  const variants = [\n    { tone: 'urgent', focus: 'pain_point', cta: 'strong' },\n    { tone: 'friendly', focus: 'benefit', cta: 'soft' },\n    { tone: 'professional', focus: 'feature', cta: 'direct' },\n    { tone: 'emotional', focus: 'transformation', cta: 'curiosity' },\n    { tone: 'authoritative', focus: 'social_proof', cta: 'limited_offer' }\n  ];\n  \n  variants.forEach((variant, idx) => {\n    outputs.push({\n      json: {\n        client_id: brief.fields.Client_ID,\n        campaign_name: brief.fields.Campaign_Name,\n        target_audience: brief.fields.Target_Audience,\n        product: brief.fields.Product_Description,\n        brand_voice: brief.fields.Brand_Voice,\n        benefits: brief.fields.Key_Benefits,\n        variant_num: idx + 1,\n        variant_strategy: JSON.stringify(variant),\n        prompt: `Create compelling ad copy for: ${brief.fields.Product_Description}\n\nTarget: ${brief.fields.Target_Audience}\nBrand Voice: ${brief.fields.Brand_Voice}\nKey Benefits: ${brief.fields.Key_Benefits}\n\nVariant Strategy:\n- Tone: ${variant.tone}\n- Focus: ${variant.focus}\n- CTA: ${variant.cta}\n\nGenerate JSON with:\n- headline (max 40 chars)\n- primary_text (max 125 chars)\n- description (max 90 chars)\n- cta (call-to-action phrase)\n\nReturn ONLY valid JSON, no markdown.`\n      }\n    });\n  });\n}\n\nreturn outputs;"
+      },
+      "id": "e9a45498-3563-4eda-a410-2bc6bcbb0a63",
+      "name": "Prepare Creative Prompts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are an expert ad copywriter. Generate compelling, conversion-optimized ad copy. Return ONLY valid JSON with no markdown formatting.",
+              "role": "system"
+            },
+            {
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 500,
+          "temperature": 0.8
+        }
+      },
+      "id": "98f93b26-cef4-4591-9186-5ae92d4f710c",
+      "name": "Generate AI Copy",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [
+        544,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const outputs = [];\n\nfor (const item of $input.all()) {\n  try {\n    let response = item.json.output || item.json.text || '';\n    \n    // Remove markdown code blocks\n    response = response.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n    \n    const creative = JSON.parse(response);\n    \n    outputs.push({\n      json: {\n        client_id: item.json.client_id,\n        campaign_name: item.json.campaign_name,\n        variant_num: item.json.variant_num,\n        variant_strategy: item.json.variant_strategy,\n        headline: creative.headline,\n        primary_text: creative.primary_text,\n        description: creative.description,\n        cta: creative.cta,\n        status: 'pending_approval',\n        created_at: new Date().toISOString()\n      }\n    });\n  } catch (error) {\n    outputs.push({\n      json: {\n        error: 'Parse failed',\n        raw: item.json.output,\n        error_msg: error.message\n      }\n    });\n  }\n}\n\nreturn outputs;"
+      },
+      "id": "57f29c18-3e54-4693-b696-ea06dbc7ae79",
+      "name": "Parse Creative",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "base": {
+          "__rl": true,
+          "value": "={{ $env.AIRTABLE_BASE_ID }}",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "Ad_Creatives",
+          "mode": "name"
+        }
+      },
+      "id": "7479f675-53a0-4d1b-827a-d8e53a263a26",
+      "name": "Save to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        976,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=🎨 {{ $json.variant_num }} new creative variants generated for *{{ $json.campaign_name }}*\n\n✅ Review and approve in Airtable",
+        "otherOptions": {}
+      },
+      "id": "dfd25e6e-31a7-40ec-bc77-a405f26324be",
+      "name": "Notify Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [
+        1200,
+        -48
+      ],
+      "webhookId": "a29511f5-7420-455a-abf9-7b1d2f9ed54d"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Client Briefs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Client Briefs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Client Briefs": {
+      "main": [
+        [
+          {
+            "node": "Prepare Creative Prompts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Creative Prompts": {
+      "main": [
+        [
+          {
+            "node": "Generate AI Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate AI Copy": {
+      "main": [
+        [
+          {
+            "node": "Parse Creative",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Creative": {
+      "main": [
+        [
+          {
+            "node": "Save to Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Airtable": {
+      "main": [
+        [
+          {
+            "node": "Notify Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d0aecb5e-0776-4631-8f34-64304e4460de",
+  "meta": {
+    "instanceId": "ba50db535390c113743b9abac809523fb1844620999ec0f1b6d745f0fb90a4c8"
+  },
+  "id": "rJZl9x1kEHb7G6bx",
+  "tags": [
+    {
+      "name": "Ad Mgmt",
+      "id": "6VmzaGWzVxOcqKu7",
+      "createdAt": "2025-12-04T11:45:37.125Z",
+      "updatedAt": "2025-12-04T11:45:37.125Z"
+    }
+  ]
+}
